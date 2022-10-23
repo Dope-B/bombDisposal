@@ -1,0 +1,1849 @@
+#include <Tone.h>
+#include <LedControl.h>
+#include <Keypad.h>
+#include <LiquidCrystal.h>
+#include<TM1637Display.h>
+TM1637Display lay(2, 3);
+LiquidCrystal LCD1(36, 37, 38, 39, 40, 41);
+byte digits[10] = { 0xFC,0x60,0xDA,0xF2,0x66,0xB6,0xBE,0xE4,0xFE,0xF6 };
+byte dec_digits[] = { 0b00111111, 0b00000110, 0b01011011, 0b01001111, 0b01100110, 0b01101101, 0b01111101, 0b0100111, 0b01111111, 0b01101111 };
+
+const byte ROWS = 4;
+const byte COLS = 4;
+byte rowPins[ROWS] = { 52, 51, 50, 49 };
+byte colPins[COLS] = { 48, 47, 46, 45 };
+Tone Timer_buzzer;
+Tone Master_buzzer;
+
+//sector 1
+int sector_1_password;
+int sector_1_input = 0000;
+bool is_sector_1_on=false;
+bool sector_1_SSG_pos;
+bool sector_1_current_digit_check[4] = { false,false,false,false };
+bool sector_1_sound_on[2] = { false,false };
+byte sector_1_order[4];
+byte sector_1_current_digit = 0;
+
+//sector 2
+byte bar_len[2];
+byte bar_time[2];
+int bar_power;
+byte current_bar_power;
+bool second_button_check = false;
+bool is_sector_2_on=false;
+bool sector_2_sound_on[5] = {false,false,false,false,false};
+
+//sector 3
+LedControl LC = LedControl(33, 35, 34, 1);
+byte row;
+byte col;
+bool sector_3_button[2] = { false,false };
+byte sector_3_dot_loc[3][2];
+bool is_sector_3_on=false;
+
+//sector 4
+bool is_sector_4_on=false;
+bool sector_4_sec_button = false;
+bool sector_4_patten = false;// up to true false to down
+bool sector_4_wire_on = false;
+bool sector_4_wire_patten[4];
+float sector_4_gap_time = 1000;
+float sector_4_timer = 0;
+byte sector_4_current_digit = 8;
+byte sector_4_pass_digit[2];
+
+//sector 5
+bool is_sector_5_on=false;
+bool sector_5_led_patten[4];
+byte sector_5_led_order[4];
+bool sector_5_led_clear[4] = {false,false,false,false};
+byte sector_5_current_order=0;
+
+//sector 6
+bool keyMode = false;
+String sector_6_pas_num;
+String sector_6_pas_cha;
+String sector_6_pas_Scha;
+String sector_6_pas;
+String sector_6_input_pas;
+
+bool button_pushed;
+bool alert_mode = false;
+bool running_off = false;
+bool restart_able = false;
+long timer;
+int timer_gap1 = 1000;
+float second_gap = 1.35;
+int minute=5;
+float second=0;
+int Serial_Number;
+int score=10000;
+byte fail_count;
+byte version;
+byte LetterSetter;
+byte total_order[5];
+byte current_order_index = 0;
+
+byte company;
+int digit_section_1[] = { 22,23,24,25 };
+int digit_segment_section_1[] = { 26,27,28,29,30,31,32 };
+String Serial_Letter;
+char Serial_SpecialKey;
+char keys[ROWS][COLS] = {
+  {'1','2','3','A'},
+  {'4','5','6','B'},
+  {'7','8','9','C'},
+  {'*','0','#','D'}
+};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+void setup() {
+	// put your setup code here, to run once:
+	//start
+	LCD1.begin(16,2);
+	LCD1.setCursor(0, 0);
+	lay.setBrightness(0xA);
+	Serial.begin(9600);
+	timer = 0;
+	Timer_buzzer.begin(A15);
+	Master_buzzer.begin(A14);
+	SetBomb();
+	LCD1.write("welcome!");
+	delay(1000);
+	fail_count = 0;
+	LCD1.clear();
+
+	pinMode(15, OUTPUT);
+	pinMode(53, OUTPUT);
+	pinMode(A14, OUTPUT);
+	pinMode(A15, OUTPUT);
+
+	//sector1
+	pinMode(4, OUTPUT);
+	pinMode(5, OUTPUT);
+	pinMode(6, OUTPUT);
+	pinMode(13, OUTPUT);
+	pinMode(A1, OUTPUT);
+	pinMode(A2, OUTPUT);
+	for (int i = 0; i < 8; i++) {
+		pinMode(digit_segment_section_1[i], OUTPUT);
+	}
+	for (int i = 0; i < 4; i++) {
+		pinMode(digit_section_1[i], OUTPUT);
+	}
+
+	//sector2
+	pinMode(A3, OUTPUT);
+	pinMode(A4, OUTPUT);
+	pinMode(8, OUTPUT);
+	pinMode(9, OUTPUT);
+	pinMode(10, OUTPUT);
+	pinMode(11, OUTPUT);
+	pinMode(12, OUTPUT);
+
+	//sector3
+	LC.shutdown(0, false);
+	LC.clearDisplay(0);
+	LC.setIntensity(0, 5);
+	pinMode(A5, OUTPUT);
+	pinMode(A6, OUTPUT);
+
+	//sector 4 
+	pinMode(42, OUTPUT);//data pin
+	pinMode(43, OUTPUT);//latch pin
+	pinMode(44, OUTPUT);//clock pin
+	pinMode(A7, OUTPUT);
+	pinMode(A8, OUTPUT);
+	pinMode(14, OUTPUT);
+	pinMode(15, OUTPUT);
+	pinMode(16, OUTPUT);
+	pinMode(17, OUTPUT);
+
+	//sector 5
+	pinMode(A9, OUTPUT);
+	pinMode(A10, OUTPUT);
+	pinMode(18, OUTPUT);
+	pinMode(19, OUTPUT);
+	pinMode(20, OUTPUT);
+	pinMode(21, OUTPUT);
+
+	//sector 6
+
+	SetLCD();
+	total_order_check();
+}
+
+void loop() {
+	// put your main code here, to run repeatedly:
+	if (!running_off) {
+		time_check();
+		fail_count_check();
+		running();
+	}
+	else {
+		button_setting_for_restart();
+		restart();
+	}
+}
+void running() {
+	if (is_sector_1_on) {
+		Sector_1();
+	}
+	else if (is_sector_2_on) {
+		Sector_2();
+	}
+	else if (is_sector_3_on) {
+		sector_3();
+	}
+	else if (is_sector_4_on) {
+		sector_4();
+	}
+	else if (is_sector_5_on) {
+		sector_5();
+	}
+	else if (keyMode) {
+		sector_6();
+	}
+}
+void time_check() {
+	if (!alert_mode) {
+		if (millis() - timer>=timer_gap1) {
+			second--;
+			Timer_buzzer.play(800, 50);
+			timer = millis();
+			if (second == -1) {
+				minute--;
+				second = 59;
+			}
+			if (minute == 0) {
+				alert_mode = true;
+				minute = 59;
+				second = 59;
+			}
+		}
+	}
+	else {
+		if (millis() - timer >= 10) {
+			second -= second_gap;
+			timer = millis();
+			if (second <= -1) {
+				minute--;
+				Timer_buzzer.play(1000, 50);
+				second = 59;
+			}
+		}
+	}
+	lay.showNumberDecEx(minute * 100 + second, 0x40, true);
+	if (alert_mode && minute <= 0 && second <= 0) {
+		total_fail();
+	}
+}
+void key() {
+	char key = keypad.getKey();
+	if (key) {
+		switch (key)
+		{
+		case'A':
+			LCD1.print("A");
+			sector_6_input_pas += "A";
+			Master_buzzer.play(600, 30);
+			break;
+		case'B':
+			LCD1.print("B");
+			sector_6_input_pas += "B";
+			Master_buzzer.play(600, 30);
+			break;
+		case'C':
+			SetLCD();
+			sector_6_input_pas=sector_6_input_pas.substring(0,sector_6_input_pas.length()-1);
+			LCD1.print(sector_6_input_pas);
+			Master_buzzer.play(200, 30);
+			score -= 20;
+			break;
+		case'D':
+			sector_6_pas_check();
+			break;
+		case'1':
+			LCD1.print("1");
+			sector_6_input_pas += "1";
+			Master_buzzer.play(600, 30);
+			break;
+		case'2':
+			LCD1.print("2");
+			sector_6_input_pas += "2";
+			Master_buzzer.play(600, 30);
+			break;
+		case'3':
+			LCD1.print("3");
+			sector_6_input_pas += "3";
+			Master_buzzer.play(600, 30);
+			break;
+		case'4':
+			LCD1.print("4");
+			sector_6_input_pas += "4";
+			Master_buzzer.play(600, 30);
+			break;
+		case'5':
+			LCD1.print("5");
+			sector_6_input_pas += "5";
+			Master_buzzer.play(600, 30);
+			break;
+		case'6':
+			LCD1.print("6");
+			sector_6_input_pas += "6";
+			Master_buzzer.play(600, 30);
+			break;
+		case'7':
+			LCD1.print("7");
+			sector_6_input_pas += "7";
+			Master_buzzer.play(600, 30);
+			break;
+		case'8':
+			LCD1.print("8");
+			sector_6_input_pas += "8";
+			Master_buzzer.play(600, 30);
+			break;
+		case'9':
+			LCD1.print("9");
+			sector_6_input_pas += "9";
+			Master_buzzer.play(600, 30);
+			break;
+		case'0':
+			LCD1.print("0");
+			sector_6_input_pas += "0";
+			Master_buzzer.play(600, 30);
+			break;
+		case'#':
+			LCD1.print("#");
+			sector_6_input_pas += "#";
+			Master_buzzer.play(600, 30);
+			break;
+		case'*':
+			LCD1.print("*");
+			sector_6_input_pas += "*";
+			Master_buzzer.play(600, 30);
+			break;
+		default:
+			break;
+		}
+	}
+}
+void fail_count_check () {
+	if (fail_count >= 3) {
+		total_fail();
+	}
+}
+void SetCompany() {
+	randomSeed(analogRead(A0));
+	company = (byte)random(4);
+}
+void SetBomb() {
+	SetCompany();
+	SetVersion();
+	SetSerial_Number(company);
+	SetSerial_Letter();
+	SetSerial_SpecialKey();
+	total_order_setting();
+	Sector_1_order_setting();
+	Sector_1_pas_setting();
+	Sector_2_bar_setting();
+	Sector_2_time_setting();
+	sector_3_loc_setting();
+	sector_4_pas_setting();
+	sector_4_wire_patten_setting();
+	sector_5_order_setting();
+	sector_5_patten_setting();
+	sector_6_pas_setting();
+	Serial.print("Co: ");
+	switch (company)
+	{
+	case 0:
+		Serial.println("Bulkan");
+		break;
+	case 1:
+		Serial.println("Rodon");
+		break;
+	case 2:
+		Serial.println("Vecky");
+		break;
+	default:
+		Serial.println("KKX");
+		break;
+	}
+	Serial.print("Version: ");
+	Serial.println(version);
+	Serial.print("Serial: ");
+	Serial.print(Serial_Letter);
+	Serial.print(Serial_Number);
+	Serial.println(Serial_SpecialKey);
+	Serial.print("total_order: ");
+	Serial.print(total_order[0]);
+	Serial.print(total_order[1]);
+	Serial.print(total_order[2]);
+	Serial.print(total_order[3]);
+	Serial.println(total_order[4]);
+	Serial.print("sector_1_order: ");
+	Serial.print(sector_1_order[0]);
+	Serial.print(sector_1_order[1]);
+	Serial.print(sector_1_order[2]);
+	Serial.println(sector_1_order[3]);
+	Serial.print("sector_1_pass: ");
+	Serial.println(sector_1_password);
+	Serial.print("sector_2_bar: ");
+	Serial.print(bar_len[0]);
+	Serial.println(bar_len[1]);
+	Serial.print("sector_2_time: ");
+	Serial.print(bar_time[0]);
+	Serial.println(bar_time[1]);
+	Serial.print("sector_3_loc: ");
+	Serial.print(sector_3_dot_loc[0][0]);
+	Serial.print(sector_3_dot_loc[0][1]);
+	Serial.print("  ");
+	Serial.print(sector_3_dot_loc[1][0]);
+	Serial.println(sector_3_dot_loc[1][1]);
+	Serial.print("  ");
+	Serial.print(sector_3_dot_loc[2][0]);
+	Serial.println(sector_3_dot_loc[2][1]);
+	Serial.print("sector_4_num: ");
+	Serial.print(sector_4_pass_digit[0]);
+	Serial.println(sector_4_pass_digit[1]);
+	Serial.print("sector_4_wire: ");
+	Serial.print(sector_4_wire_patten[0]);
+	Serial.print(sector_4_wire_patten[1]);
+	Serial.print(sector_4_wire_patten[2]);
+	Serial.println(sector_4_wire_patten[3]);
+	Serial.print("sector_5_patten: ");
+	Serial.print(sector_5_led_patten[0]);
+	Serial.print(sector_5_led_patten[1]);
+	Serial.print(sector_5_led_patten[2]);
+	Serial.println(sector_5_led_patten[3]);
+	Serial.print("sector_5_led: ");
+	Serial.print(sector_5_led_order[0]);
+	Serial.print(sector_5_led_order[1]);
+	Serial.print(sector_5_led_order[2]);
+	Serial.println(sector_5_led_order[3]);
+	Serial.print("sector_6_pas: ");
+	Serial.println(sector_6_pas);
+
+}
+void SetVersion() {
+	randomSeed(analogRead(A0));
+	version = random(4);
+}
+void SetSerial_Number(byte company) {
+	randomSeed(analogRead(A0)*3);
+	switch (company)
+	{
+	case 0:
+		Serial_Number = (int)random(1000,10000);
+		break;
+	case 1:
+		Serial_Number = (int)random(1000,4500);
+		break;
+	case 2:
+		Serial_Number = (int)random(0,1000);
+		break;
+	default:
+		Serial_Number = (int)random(100,1000);
+		break;
+	}
+}
+void SetSerial_Letter() {
+	LetterSetter = (byte)random(7);
+	switch (LetterSetter) {
+	case 0:
+		Serial_Letter = "ADR";		
+		break;
+	case 1:
+		Serial_Letter = "KR";
+		break;
+	case 2:
+		Serial_Letter = "AWXA";
+		break;
+	case 3:
+		Serial_Letter = "MP";		
+		break;
+	case 4:
+		Serial_Letter = "OST";
+		break;
+	case 5:
+		Serial_Letter = "X";
+		break;
+	default:
+		Serial_Letter = "WYGH";
+		break;
+	}
+}
+void SetSerial_SpecialKey() {
+	randomSeed(analogRead(0));
+	byte SCSetter = random(4);
+	switch (SCSetter)
+	{
+	case 0:
+		Serial_SpecialKey = 'R';
+		break;
+	case 1:
+		Serial_SpecialKey = 'T';
+		break;
+	case 2:
+		Serial_SpecialKey = 'J';
+		break;
+	default:
+		Serial_SpecialKey = 'P';
+		break;
+	}
+}
+void SetLCD() {
+	if (!keyMode) {
+		LCD1.setCursor(0, 0);
+		LCD1.print("Code:");
+		LCD1.print(Serial_Letter);
+		LCD1.print(Serial_Number);
+		LCD1.print(Serial_SpecialKey);
+		LCD1.setCursor(0, 1);
+		LCD1.print("Co.");
+		switch (company)
+		{
+		case 0:
+			LCD1.print("Bulkan");
+			break;
+		case 1:
+			LCD1.print("Rodon");
+			break;
+		case 2:
+			LCD1.print("Vecky");
+			break;
+		default:
+			LCD1.print("KKX");
+			break;
+		}
+		LCD1.setCursor(11, 1);
+		LCD1.print("Ver.");
+		switch (version)
+		{
+		case 0:
+			LCD1.print("0");
+			break;
+		case 1:
+			LCD1.print("1");
+			break;
+		case 2:
+			LCD1.print("2");
+			break;
+		default:
+			LCD1.print("3");
+			break;
+		}
+	}
+	else {
+		LCD1.clear();
+		LCD1.setCursor(4, 0);
+		LCD1.print("Password");
+		LCD1.setCursor(3, 1);
+	}
+}
+void fail(uint8_t led,byte sector) {
+	Master_buzzer.play(1200, 1000);
+	switch (sector) {
+	case 1:
+		is_sector_1_on = false;
+		break;
+	case 2:
+		is_sector_2_on = false;
+		break;
+	case 3:
+		is_sector_3_on = false;
+		break;
+	case 4:
+		is_sector_4_on = false;
+		break;
+	case 5:
+		is_sector_5_on = false;
+		break;
+	}
+	analogWrite(led, 250);
+	fail_count++;
+	current_order_index++;
+	total_order_check();
+	timer_gap1 -= 200;
+	second_gap += 0.25;
+	score -= 2000;
+}
+void clear(uint8_t led, byte sector) {
+	switch (sector) {
+	case 1:
+		is_sector_1_on = false;
+		break;
+	case 2:
+		is_sector_2_on = false;
+		break;
+	case 3:
+		is_sector_3_on = false;
+		break;
+	case 4:
+		is_sector_4_on = false;
+		break;
+	case 5:
+		is_sector_5_on = false;
+		break;
+	}
+	analogWrite(led, 250);
+	current_order_index++;
+	total_order_check();
+	Master_buzzer.play(900, 50);
+}
+// sector 1
+void Sector_1() {
+	Sector_1_button_SSG_check();
+}
+void Sector_1_SSG_print(int number, int position) {
+	for (int i = 0; i < 4; i++) {
+		if (i == position) {
+			digitalWrite(digit_section_1[i], LOW);
+		}
+		else {
+			digitalWrite(digit_section_1[i], HIGH);
+		}
+	}
+	for (int i = 0; i < 8; i++) {
+		byte segment = (digits[number] & (0x01 << i)) >> i;
+		if (segment == 1) {
+			digitalWrite(digit_segment_section_1[7 - i], HIGH);
+		}
+		else {
+			digitalWrite(digit_segment_section_1[7 - i], LOW);
+		}
+	}
+}
+void Sector_1_button_SSG_check() {
+	if (digitalRead(13) == HIGH) {
+		sector_1_SSG_pos = false;
+		if (!sector_1_sound_on[0]) { Master_buzzer.play(600, 30); sector_1_sound_on[0] = true; sector_1_sound_on[1] = false; }
+		
+	}
+	else {
+		sector_1_SSG_pos = true;
+		if (!sector_1_sound_on[1]) { Master_buzzer.play(600, 30); sector_1_sound_on[1] = true; sector_1_sound_on[0] = false; }
+	}
+	if (digitalRead(4) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (sector_1_SSG_pos) {
+			if (!sector_1_current_digit_check[0]&&sector_1_order[sector_1_current_digit] == 1) {
+				sector_1_current_digit_check[0] = true;
+				sector_1_current_digit_check[1] = false;
+				sector_1_current_digit_check[2] = false;
+				sector_1_current_digit_check[3] = false;
+				sector_1_current_digit++;
+			}
+			if (sector_1_current_digit_check[0]) {
+				if ((sector_1_input / 1000) == 9) {
+					sector_1_input -= 9000;
+				}
+				else {
+					sector_1_input += 1000;
+				}
+				Sector_1_SSG_print(sector_1_input / 1000, 0);
+				Master_buzzer.play(600, 30);
+			}
+			else {
+				fail(A1, 1);
+			}
+		}
+		else {
+			if (!sector_1_current_digit_check[2] && sector_1_order[sector_1_current_digit] == 3) {
+				sector_1_current_digit_check[0] = false;
+				sector_1_current_digit_check[1] = false;
+				sector_1_current_digit_check[2] = true;
+				sector_1_current_digit_check[3] = false;
+				sector_1_current_digit++;
+			}
+			if (sector_1_current_digit_check[2]) {
+				if (((sector_1_input % 100) / 10) == 9) {
+					sector_1_input -= 90;
+				}
+				else {
+					sector_1_input += 10;
+				}
+				Sector_1_SSG_print((sector_1_input % 100) / 10, 2);
+				Master_buzzer.play(600, 30);
+			}
+			else {
+				fail(A1, 1);
+			}
+
+		}
+	}
+	else if (digitalRead(5) == HIGH && !button_pushed) {
+		button_pushed = true;
+			if (sector_1_SSG_pos) {
+				if (!sector_1_current_digit_check[1] && sector_1_order[sector_1_current_digit] == 2) {
+					sector_1_current_digit_check[0] = false;
+					sector_1_current_digit_check[1] = true;
+					sector_1_current_digit_check[2] = false;
+					sector_1_current_digit_check[3] = false;
+					sector_1_current_digit++;
+				}
+				if (sector_1_current_digit_check[1]) {
+					if (((sector_1_input % 1000) / 100) == 9) {
+						sector_1_input -= 900;
+					}
+					else {
+						sector_1_input += 100;
+					}
+					Sector_1_SSG_print((sector_1_input % 1000) / 100, 1);
+					Master_buzzer.play(600, 30);
+				}
+				else {
+					fail(A1, 1);
+				}
+			}
+			else {
+				if (!sector_1_current_digit_check[3] && sector_1_order[sector_1_current_digit] == 4) {
+					sector_1_current_digit_check[0] = false;
+					sector_1_current_digit_check[1] = false;
+					sector_1_current_digit_check[2] = false;
+					sector_1_current_digit_check[3] = true;
+					sector_1_current_digit++;
+				}
+				if (sector_1_current_digit_check[3]) {
+					if ((sector_1_input % 10) == 9) {
+						sector_1_input -= 9;
+					}
+					else {
+						sector_1_input += 1;
+					}
+					Sector_1_SSG_print(sector_1_input % 10, 3);
+					Master_buzzer.play(600, 30);
+				}
+				else {
+					fail(A1, 1);
+				}
+		}
+	}
+	else if (digitalRead(6) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (sector_1_input == sector_1_password) {
+			clear(A2, 1);
+		}
+		else {
+			fail(A1, 1);
+		}
+	}
+	else if(digitalRead(4) == LOW&& digitalRead(5) == LOW&& digitalRead(6) == LOW) {
+		button_pushed = false;
+	}
+
+}
+void Sector_1_pas_setting() {
+	byte Fn;
+	byte Sn;
+	byte Tn;
+	byte fN;
+	switch (Serial_SpecialKey)
+	{
+	case 'R':
+		Fn = 5;	
+		break;
+	case 'T':
+		Fn = 8;	
+		break;
+	case 'J':
+		Fn = 0;
+		break;
+	default:
+		Fn = 3;
+		break;
+	}
+	switch (LetterSetter)
+	{
+	case 0:
+		Tn = (version * 6) / 5;
+		break;
+	case 1:
+		Tn = 3;
+		break;
+	case 2:
+		Tn = 0;
+		break;
+	case 4:
+		Tn = Serial_Number % 8;
+		break;
+	case 5:
+		Tn = 1;
+		break;
+	default:
+		Tn = 7;
+		break;
+	}
+	switch (company)
+	{
+	case 0:
+		fN = (Serial_Number % 100) % 9;
+		Sn = fN % 3;
+		break;
+	case 1:
+		Sn = 0;
+		fN = ((Serial_Number * 3) % 4) * 2;
+		break;
+	case 2:
+		Sn = (Tn * 7) / 9;
+		if (Serial_Number > 100) {
+			fN = 2;
+		}
+		else {
+			fN = ((Serial_Number * 8) + 138) / 100;
+		}
+		break;
+	default:
+		fN = (Serial_Number / 170) + 2;
+		Sn = (((fN * 6) / 10) + ((fN * 4) % 10)) % 10;
+		break;
+	}
+	sector_1_password = (Fn * 1000) + (Sn * 100) + (Tn * 10) + fN;
+}
+void Sector_1_order_setting() {
+	switch (company)
+	{
+	case 0:
+		sector_1_order[0] = 2;
+		sector_1_order[1] = 4;
+		sector_1_order[2] = 3;
+		sector_1_order[3] = 1;
+		break;
+	case 1:
+		sector_1_order[0] = 4;
+		sector_1_order[1] = 2;
+		sector_1_order[2] = 1;
+		sector_1_order[3] = 3;
+		break;
+	case 2:
+		sector_1_order[0] = 1;
+		sector_1_order[1] = 4;
+		sector_1_order[2] = 3;
+		sector_1_order[3] = 2;
+		break;
+	default:
+		sector_1_order[0] = 3;
+		sector_1_order[1] = 2;
+		sector_1_order[2] = 1;
+		sector_1_order[3] = 4;
+		break;
+	}
+}
+
+//sector 2
+void Sector_2() {
+	Sector_2_bar();
+	Sector_2_button_check();
+}
+void Sector_2_bar_setting() {
+	switch (company)
+	{
+	case 0:
+		switch (Serial_SpecialKey)
+		{
+		case 'R':
+			bar_len[0] = 1;
+			bar_len[1] = 5;
+			break;
+		case 'T':
+			bar_len[0] = 3;
+			bar_len[1] = 2;
+			break;
+		case 'J':
+			bar_len[0] = 1;
+			bar_len[1] = 2;
+			break;
+		default:
+			bar_len[0] = 4;
+			bar_len[1] = 2;
+			break;
+		}
+		break;
+	case 1:
+		bar_len[0] = ((Serial_Number%100)/10)%6;
+		bar_len[1] = 5;
+		break;
+	case 2:
+		switch (Serial_SpecialKey)
+		{
+		case 'R':
+			bar_len[0] = 3;
+			bar_len[1] = 5;
+			break;
+		case 'T':
+			bar_len[0] = 1;
+			bar_len[1] = 3;
+			break;
+		case 'J':
+			bar_len[0] = 0;
+			bar_len[1] = 4;
+			break;
+		default:
+			bar_len[0] = 3;
+			bar_len[1] = 1;
+			break;
+		}
+		break;
+	default:
+		bar_len[0] = (int)(((Serial_Number % 1000) / 100) * 3) / 6;
+		bar_len[1] = (int)((Serial_Number % 10) * 8) % 6;
+		break;
+	}
+}
+void Sector_2_time_setting() {
+	switch (version)
+	{
+	case 0:
+		if (company == 2) {
+			bar_time[0] = 4;
+			bar_time[1] = 0;
+		}
+		else {
+			bar_time[0] = 8;
+			bar_time[1] = 7;
+		}
+		break;
+	case 1:
+		if (company == 0) {
+			bar_time[0] = (int)(((Serial_Number % 1000) / 100) * 7) % 10 ;
+			bar_time[1] = (int)(((Serial_Number % 100) / 10) * 4) % 3;
+		}
+		else {
+			bar_time[0] = 2;
+			bar_time[1] = 6;
+		}
+		break;
+	case 2:
+		bar_time[0] = 0;
+		bar_time[1] = 5;
+		break;
+	case 3:
+		if (company == 3) {
+			bar_time[0] = (int)(Serial_Number % 10);
+			bar_time[1] = (bar_time[0] * 8) % 10;
+		}
+		else {
+			bar_time[0] = 4;
+			bar_time[1] = 7;
+		}
+		break;
+	default:
+		if (company == 1) {
+			bar_time[0] = 4;
+			bar_time[1] = (int)(((Serial_Number % 100) / 10) * 9) % 8;
+		}
+		else {
+			bar_time[0] = 1;
+			bar_time[1] = 3;
+		}
+		break;
+	}
+}
+void Sector_2_bar() {
+	bar_power = analogRead(A11);
+	if (bar_power >= 200 && bar_power < 400) { current_bar_power = 1; }
+	else if (bar_power >= 400 && bar_power < 600) { current_bar_power = 2; }
+	else if (bar_power >= 600 && bar_power < 800) { current_bar_power = 3; }
+	else if (bar_power >= 800 && bar_power < 900) { current_bar_power = 4; }
+	else if (bar_power >= 900 ) { current_bar_power = 5; }
+	else if (bar_power < 200) { current_bar_power = 0; }
+	if (bar_power >= 200) {
+		if(digitalRead(8)==LOW){
+			
+			Master_buzzer.play(200, 20);
+		}
+		digitalWrite(8, HIGH);
+	}
+	else {
+		digitalWrite(8, LOW);
+	}
+	if (bar_power >= 400) {
+		if (digitalRead(9) == LOW) {
+			
+			Master_buzzer.play(400, 20);
+		}
+		digitalWrite(9, HIGH);
+	}
+	else {
+		if (digitalRead(9) == HIGH) {
+			
+			Master_buzzer.play(200, 20);
+		}
+		digitalWrite(9, LOW);
+	}
+	if (bar_power >= 600) {
+		if (digitalRead(10) == LOW) {
+			
+			Master_buzzer.play(600, 20);
+		}
+		digitalWrite(10, HIGH);
+	}
+	else {
+		if (digitalRead(10) == HIGH) {
+			
+			Master_buzzer.play(400, 20);
+		}
+		digitalWrite(10, LOW);
+	}
+	if (bar_power >= 800) {
+		if (digitalRead(11) == LOW) {
+			
+			Master_buzzer.play(800, 20);
+		}
+		digitalWrite(11, HIGH);
+	}
+	else {
+		if (digitalRead(11) == HIGH) {
+			
+			Master_buzzer.play(600, 20);
+		}
+		digitalWrite(11, LOW);
+	}
+	if (bar_power >= 900) {
+		if (digitalRead(12) == LOW) {
+			
+			Master_buzzer.play(1000, 20);
+		}
+		digitalWrite(12, HIGH);
+	}
+	else {
+		if (digitalRead(12) == HIGH) {
+			
+			Master_buzzer.play(800, 20);
+		}
+		digitalWrite(12, LOW);
+	}
+}
+void Sector_2_button_check() {
+	if (digitalRead(4) == HIGH && !button_pushed) {
+		
+		Master_buzzer.play(600, 30);
+		if (bar_len[0] == current_bar_power) {
+			if (alert_mode) {
+				if ((int)bar_time[0] == (minute % 10)) {
+					second_button_check = true;
+					button_pushed = true;
+				}
+				else {
+					fail(A3, 2);
+				}
+			}
+			else {
+				if ((int)bar_time[0] == ((int)second % 10)) {
+					second_button_check = true;
+					button_pushed = true;
+				}
+				else {
+					fail(A3, 2);
+				}
+			}
+		}
+		else {
+			fail(A3, 2);
+		}
+	}
+	else if (digitalRead(5) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (second_button_check) {
+			if (bar_len[1] == current_bar_power) {
+				if (alert_mode) {
+					if ((int)bar_time[1] == (minute % 10)) {
+						clear(A4, 2);
+					}
+					else {
+						fail(A3, 2);
+					}
+				}
+				else {
+					if ((int)bar_time[1] == ((int)second % 10)) {
+						clear(A4, 2);
+					}
+					else {
+						fail(A3, 2);
+					}
+				}
+			}
+		}
+		else {
+			fail(A3, 2);
+		}
+	}
+	else if (digitalRead(4) == LOW && digitalRead(5) == LOW) {
+		button_pushed = false;
+	}
+}//4,5
+//sector 3
+void sector_3() {
+	sector_3_dot_loc_update();
+	sector_3_dot_print();
+	sector_3_button_check();
+}
+void sector_3_dot_loc_update() {
+	row = map(analogRead(A12), 1025, -10, 0, 8);
+	col = map(analogRead(A13), 1025, -10, 0, 8);
+}
+void sector_3_dot_print() {
+	LC.clearDisplay(0);
+	LC.setRow(0, row, B11111111);
+	LC.setColumn(0, col, B11111111);
+
+}
+void sector_3_button_check() {
+	if (digitalRead(4) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (!sector_3_button[0]) {
+			if (col == sector_3_dot_loc[0][0] && row == sector_3_dot_loc[0][1]) {
+				sector_3_button[0] = true;
+				Master_buzzer.play(600, 30);
+			}
+			else {
+				fail(A5, 3);
+			}
+		}
+		else{ fail(A5, 3); }
+	}
+	else if (digitalRead(5) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (!sector_3_button[0]) {
+			fail(A5, 3);
+		}
+		else {
+			if (!sector_3_button[1]) {
+				if (col == sector_3_dot_loc[1][0] && row == sector_3_dot_loc[1][1]) {
+					sector_3_button[1] = true;
+					Master_buzzer.play(600, 30);
+				}
+				else {
+					fail(A5, 3);
+				}
+			}
+			else {
+				fail(A5, 3);
+			}
+		}
+	}
+	else if (digitalRead(6) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (!sector_3_button[1]) {
+			fail(A5, 3);
+		}
+		else {
+			if (col == sector_3_dot_loc[2][0] && row == sector_3_dot_loc[2][1]) {
+				clear(A6, 3);
+			}
+			else {
+				fail(A5, 3);
+			}
+		}
+	}
+	else if (digitalRead(4) == LOW && digitalRead(5) == LOW && digitalRead(6) == LOW) {
+		button_pushed = false;
+	}
+}
+void sector_3_loc_setting() {
+	switch (LetterSetter)
+	{
+	case 0:
+		sector_3_dot_loc[0][0] = 4;
+		sector_3_dot_loc[0][1] = 5;
+		sector_3_dot_loc[1][0] = 1;
+		sector_3_dot_loc[1][1] = 2;
+		sector_3_dot_loc[2][0] = 4;
+		sector_3_dot_loc[2][1] = 7;
+		break;
+	case 1:
+		sector_3_dot_loc[0][0] = 0;
+		sector_3_dot_loc[0][1] = 6;
+		sector_3_dot_loc[1][0] = 2;
+		sector_3_dot_loc[1][1] = 5;
+		if (Serial_SpecialKey == 'J') {
+			sector_3_dot_loc[2][0] = 7;
+			sector_3_dot_loc[2][1] = 1;
+		}
+		else {
+			sector_3_dot_loc[2][0] = 5;
+			sector_3_dot_loc[2][1] = 7;
+		}
+		break;
+	case 3:
+		sector_3_dot_loc[0][0] = 7;
+		sector_3_dot_loc[0][1] = 3;
+		sector_3_dot_loc[1][0] = 1;
+		sector_3_dot_loc[1][1] = 0;
+		sector_3_dot_loc[2][0] = 3;
+		sector_3_dot_loc[2][1] = 6;
+		break;
+	case 4:
+		sector_3_dot_loc[0][0] = version+3;
+		sector_3_dot_loc[0][1] = 6;
+		sector_3_dot_loc[1][0] = 2;
+		sector_3_dot_loc[1][1] = Serial_Number%7;
+		if (company==4) {
+			sector_3_dot_loc[2][0] = 0;
+			sector_3_dot_loc[2][1] = 0;
+		}
+		else {
+			sector_3_dot_loc[2][0] = sector_3_dot_loc[0][1];
+			sector_3_dot_loc[2][1] = sector_3_dot_loc[1][0];
+		}
+		break;
+	default:
+		sector_3_dot_loc[0][0] = ((Serial_Number % 100)/10) % 8;
+		sector_3_dot_loc[0][1] = 2;
+		sector_3_dot_loc[2][0] = 5;
+		sector_3_dot_loc[2][1] = 3;
+		if (version == 2) {
+			sector_3_dot_loc[1][0] = 7;
+			sector_3_dot_loc[1][1] = 7;
+		}
+		else {
+			sector_3_dot_loc[1][0] = 4;
+			sector_3_dot_loc[1][1] = 1;
+		}
+		break;
+	}
+}
+//sector 4
+void sector_4() {
+	if (!sector_4_wire_on) {
+		if (millis() - sector_4_timer >= sector_4_gap_time) {
+			sector_4_timer = millis();
+			if (sector_4_patten) {
+				sector_4_current_digit++;
+			}
+			else {
+				sector_4_current_digit--;
+			}
+			sector_4_print(sector_4_current_digit);
+			if (sector_4_current_digit <= 3 || sector_4_current_digit >= 7) {
+				Master_buzzer.play(500, 20);
+			}
+			else {
+				Master_buzzer.play(800, 20);
+			}
+		}
+	}
+	sector_4_digit_check();
+	sector_4_button_check();
+	sector_4_wire_check();
+}
+void sector_4_print(int number) {
+		digitalWrite(43, LOW); // shift out the bits:
+		shiftOut(42, 44, MSBFIRST, dec_digits[number]);
+		digitalWrite(43, HIGH);
+	}
+void sector_4_digit_check() {
+	if (sector_4_current_digit == 0 || sector_4_current_digit == 9) {
+		fail(A7, 4);
+	}
+}
+void sector_4_pas_setting() {
+	switch (Serial_SpecialKey)
+	{
+	case 'R':
+		sector_4_pass_digit[0] = ((Serial_Number%10)%6)+2;
+		sector_4_pass_digit[0] = 8;
+		break;
+	case 'T':
+		if (company == 3) {
+			sector_4_pass_digit[0] = 4;
+			sector_4_pass_digit[1] = 5;
+		}
+		else {
+			sector_4_pass_digit[0] = version+3;
+			sector_4_pass_digit[1] = 3;
+		}
+		break;
+	case 'J':
+		if (LetterSetter==5) {
+			sector_4_pass_digit[0] = 6;
+			sector_4_pass_digit[1] = 2;
+		}
+		else {
+			sector_4_pass_digit[0] = version + 1;
+			sector_4_pass_digit[1] = (((Serial_Number) % 10) % 4) + 5;
+		}
+		break;
+	default:
+		sector_4_pass_digit[0] = 7;
+		sector_4_pass_digit[1] = (((Serial_Number % 10) *7)%8) + 1;
+		break;
+	}
+}
+void sector_4_wire_patten_setting() {
+	switch (company)
+	{
+	case 1:
+		if (version == 1 || LetterSetter == 3) {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = false;
+			sector_4_wire_patten[2] = true;
+			sector_4_wire_patten[3] = false;
+		}
+		else if (version == 3 && Serial_SpecialKey == 'T') {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = false;
+			sector_4_wire_patten[2] = false;
+			sector_4_wire_patten[3] = false;
+		}
+		else {
+			sector_4_wire_patten[0] = false;
+			sector_4_wire_patten[1] = false;
+			sector_4_wire_patten[2] = true;
+			sector_4_wire_patten[3] = false;
+		}
+		break;
+	case 2:
+		if (version == 0 || LetterSetter == 0) {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = true;
+			sector_4_wire_patten[2] = true;
+			sector_4_wire_patten[3] = false;
+		}
+		else if (version == 4 && Serial_SpecialKey == 'R') {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = false;
+			sector_4_wire_patten[2] = false;
+			sector_4_wire_patten[3] = true;
+		}
+		else {
+			sector_4_wire_patten[0] = false;
+			sector_4_wire_patten[1] = true;
+			sector_4_wire_patten[2] = true;
+			sector_4_wire_patten[3] = true;
+		}
+		break;
+	default:
+		if (version == 1 || LetterSetter == 6||Serial_SpecialKey=='T') {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = true;
+			sector_4_wire_patten[2] = false;
+			sector_4_wire_patten[3] = false;
+		}
+
+		else {
+			sector_4_wire_patten[0] = true;
+			sector_4_wire_patten[1] = false;
+			sector_4_wire_patten[2] = true;
+			sector_4_wire_patten[3] = true;
+		}
+		break;
+	}
+}
+void sector_4_button_check() {
+	if (digitalRead(4) == HIGH && !button_pushed) {
+		button_pushed = true;
+		Master_buzzer.play(600, 30);
+		sector_4_patten = !sector_4_patten;
+		sector_4_gap_time -= 50;
+		score -= 10;
+	}
+	else if (digitalRead(5) == HIGH && !button_pushed) {
+		button_pushed = true;
+		Master_buzzer.play(600, 30);
+		if (sector_4_current_digit == sector_4_pass_digit[0]) {
+			sector_4_sec_button = true;
+			sector_4_patten = !sector_4_patten;
+		}
+		else {
+			fail(A7, 4);
+		}
+	}
+	else if (digitalRead(6) == HIGH && !button_pushed) {
+		button_pushed = true;
+		Master_buzzer.play(600, 30);
+		if (sector_4_sec_button) {
+			if (sector_4_current_digit == sector_4_pass_digit[1]) {
+				sector_4_wire_on = true;
+			}
+			else {
+				fail(A7, 4);
+			}
+		}
+		else {
+			fail(A7, 4);
+		}
+	}
+	else if (digitalRead(4) == LOW && digitalRead(5) == LOW && digitalRead(6) == LOW) {
+		button_pushed = false;
+	}
+}
+void sector_4_wire_check() {
+	if (digitalRead(14) == LOW) {
+		if (sector_4_wire_patten[0] == true || !sector_4_wire_on) {
+			fail(A7, 4);
+		}
+		
+	}
+	if (digitalRead(15) == LOW) {
+		if (sector_4_wire_patten[1] == true || !sector_4_wire_on) {
+			fail(A7, 4);
+		}
+	}
+	if (digitalRead(16) == LOW) {
+		if (sector_4_wire_patten[2] == true || !sector_4_wire_on) {
+			fail(A7, 4);
+		}
+	}
+	if (digitalRead(17) == LOW) {
+		if (sector_4_wire_patten[3] == true || !sector_4_wire_on) {
+			fail(A7, 4);
+		}
+	}
+	if (digitalRead(14) == sector_4_wire_patten[0] &&
+		digitalRead(15) == sector_4_wire_patten[1] &&
+		digitalRead(16) == sector_4_wire_patten[2] &&
+		digitalRead(17) == sector_4_wire_patten[3]) {
+		clear(A8, 4);
+	}
+}
+
+//sector 5
+void sector_5() {
+
+	sector_5_button_check();
+	sector_5_order_check();
+}
+void sector_5_patten_setting() {
+	switch (version)
+	{
+	case 0:
+		if (company == 1 || LetterSetter == 4) {
+			sector_5_led_patten[0] = true;
+			sector_5_led_patten[1] = false;
+			sector_5_led_patten[2] = true;
+			sector_5_led_patten[3] = true;
+		}
+		else {
+			sector_5_led_patten[0] = true;
+			sector_5_led_patten[1] = false;
+			sector_5_led_patten[2] = false;
+			sector_5_led_patten[3] = true;
+		}
+		break;
+	case 1:
+		if ((LetterSetter == 0 || LetterSetter == 3) && Serial_SpecialKey == 'P') {
+			sector_5_led_patten[0] = false;
+			sector_5_led_patten[1] = true;
+			sector_5_led_patten[2] = true;
+			sector_5_led_patten[3] = true;
+		}
+		else {
+			sector_5_led_patten[0] = true;
+			sector_5_led_patten[1] = false;
+			sector_5_led_patten[2] = true;
+			sector_5_led_patten[3] = false;
+		}
+		break;
+	case 3:
+		if ((company == 4 && LetterSetter == 1)||LetterSetter==5) {
+			sector_5_led_patten[0] = false;
+			sector_5_led_patten[1] = false;
+			sector_5_led_patten[2] = false;
+			sector_5_led_patten[3] = true;
+		}
+		else {
+			sector_5_led_patten[0] = true;
+			sector_5_led_patten[1] = true;
+			sector_5_led_patten[2] = true;
+			sector_5_led_patten[3] = false;
+		}
+		break;
+	default:
+		sector_5_led_patten[0] = true;
+		sector_5_led_patten[1] = true;
+		sector_5_led_patten[2] = true;
+		sector_5_led_patten[3] = true;
+		break;
+	}
+}
+void sector_5_order_setting() {
+	switch (LetterSetter)
+	{
+	case 1:
+		sector_5_led_order[0] = 3;
+		sector_5_led_order[1] = 1;
+		sector_5_led_order[2] = 2;
+		sector_5_led_order[3] = 4;
+		break;
+	case 2:
+		if (Serial_SpecialKey == 'T' || Serial_SpecialKey == 'J') {
+			sector_5_led_order[0] = 2;
+			sector_5_led_order[1] = 4;
+			sector_5_led_order[2] = 1;
+			sector_5_led_order[3] = 3;
+		}
+		else {
+			sector_5_led_order[0] = 1;
+			sector_5_led_order[1] = 2;
+			sector_5_led_order[2] = 3;
+			sector_5_led_order[3] = 4;
+		}
+		break;
+	case 6:
+		sector_5_led_order[0] = 4;
+		sector_5_led_order[1] = 2;
+		sector_5_led_order[2] = 3;
+		sector_5_led_order[3] = 1;
+		break;
+	default:
+		if ((company==0 || Serial_SpecialKey == 'R'||company==3)&&Serial_Number>4000) {
+			sector_5_led_order[0] = 2;
+			sector_5_led_order[1] = 4;
+			sector_5_led_order[2] = 1;
+			sector_5_led_order[3] = 3;
+		}
+		else {
+			sector_5_led_order[0] = 3;
+			sector_5_led_order[1] = 2;
+			sector_5_led_order[2] = 1;
+			sector_5_led_order[3] = 4;
+		}
+		break;
+	}
+}
+void sector_5_button_check() {
+	if (digitalRead(6) == HIGH && !button_pushed) {
+		button_pushed = true;
+		if (sector_5_current_order>=4) {
+			clear(A10, 5);
+		}
+		else {
+			fail(A9, 5);
+		}
+	}
+	else if (digitalRead(6) == LOW) {
+		button_pushed = false;
+	}
+}
+void sector_5_order_check() {
+	if (digitalRead(18) == LOW) {
+		if (sector_5_led_order[sector_5_current_order] == 1) {
+			if (sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[0] = true;
+				sector_5_current_order++;		
+				Master_buzzer.play(600, 30);
+			}
+			else { fail(A9, 5); }
+		}
+		else { if (!sector_5_led_clear[0]) { fail(A9, 5); } }
+	}
+	else {
+		if (sector_5_led_order[sector_5_current_order] == 1) {
+			if (!sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[0] = true;
+				sector_5_current_order++;
+			}
+		}
+	}
+	if (digitalRead(19) == LOW) {
+		if (sector_5_led_order[sector_5_current_order] == 2) {
+			if (sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[1] = true;
+				sector_5_current_order++;
+				Master_buzzer.play(600, 30);
+			}
+			else { fail(A9, 5); }
+		}
+		else { if (!sector_5_led_clear[1]) { fail(A9, 5); } }
+	}
+	else {
+		if (sector_5_led_order[sector_5_current_order] == 2) {
+			if (!sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[1] = true;
+				sector_5_current_order++;
+			}
+		}
+	}
+	if (digitalRead(20) == LOW) {
+		if (sector_5_led_order[sector_5_current_order] == 3) {
+			if (sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[2] = true;
+				sector_5_current_order++;
+				Master_buzzer.play(600, 30);
+			}
+			else { fail(A9, 5); }
+		}
+		else { if (!sector_5_led_clear[2]) { fail(A9, 5); } }
+	}
+	else {
+		if (sector_5_led_order[sector_5_current_order] == 3) {
+			if (!sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[2] = true;
+				sector_5_current_order++;
+			}
+		} 
+	}
+	if (digitalRead(21) == LOW) {
+		if (sector_5_led_order[sector_5_current_order] == 4) {
+			if (sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[3] = true;
+				sector_5_current_order++;
+				Master_buzzer.play(600, 30);
+			}
+			else {
+				fail(A9, 5);
+			}
+		}
+		else { if (!sector_5_led_clear[3]) { fail(A9, 5);
+		} }
+	}
+	else {
+		if (sector_5_led_order[sector_5_current_order] == 4) {
+			if (!sector_5_led_patten[sector_5_current_order]) {
+				sector_5_led_clear[sector_5_current_order] = true;
+				sector_5_current_order++;
+			}
+		}
+	}
+}
+
+//sector 6
+void sector_6() {
+	key();
+}
+
+void sector_6_pas_setting() {
+	switch(company) {
+		case 0:
+			if (Serial_Number > 5000 && LetterSetter != 5) { sector_6_pas_num = (String)((Serial_Number - 3937)*4); }
+			else {
+				if (Serial_SpecialKey == 'T') { sector_6_pas_num = (String)((Serial_Number - 259) * (version + 1)); }
+				else { sector_6_pas_num = (String)((Serial_Number / 10) * (Serial_Number % 10)); }
+			}
+			break;
+		case 1:
+			if (Serial_Number > 2000 && version != 3) { sector_6_pas_num = (String)((Serial_Number + 1539) * ((Serial_Number + 1539) % 10)); }
+			else {
+				if (Serial_SpecialKey == 'R') { sector_6_pas_num = (String)((Serial_Number - 553) * 5); }
+				else { sector_6_pas_num = (String)((Serial_Number * 4) - (Serial_Number / 10)); }
+			}
+			break;
+		case 2:
+			if (Serial_Number > 500 || LetterSetter == 1 || Serial_SpecialKey == 'J') { sector_6_pas_num = (String)((Serial_Number * 11) + 73); }
+			else {
+				if (version == 2 || version == 3) { sector_6_pas_num = (String)((Serial_Number) * (Serial_Number % 10)); }
+				else { sector_6_pas_num = (String)((Serial_Number % 10) * 446); }
+			}
+			break;
+		default:
+			if ((Serial_Number / 100) + (Serial_Number % 10) < 14) { sector_6_pas_num = "58641"; }
+			else {
+				if (Serial_SpecialKey == 'P' || version == 2) { sector_6_pas_num = (String)((Serial_Number * 12) + 8); }
+				else { sector_6_pas_num = (String)((Serial_Number * 8) - 549); }
+			}
+			break;
+	}
+	switch (version) {
+	case 0:
+		sector_6_pas_cha = "AAB";
+			break;
+	case 1:
+		if ((Serial_Number % 10) > 5) { sector_6_pas_cha = "AA"; }
+		else { sector_6_pas_cha = "AB"; }
+		break;
+	case 2:
+		if (LetterSetter == 5) { sector_6_pas_cha = "BA";}
+		else { sector_6_pas_cha = "BB"; }
+		break;
+	default:
+		if ((Serial_Number < 2000) && (Serial_SpecialKey != 'T')) { sector_6_pas_cha = "BAB"; }
+		else if (LetterSetter != 3 || LetterSetter != 0) { sector_6_pas_cha = "B"; }
+		else { sector_6_pas_cha = "ABB"; }
+		break;
+	}
+	switch (Serial_SpecialKey) {
+	case 'T':
+	case 'J':
+		if (version >= 2) { sector_6_pas_Scha = "#"; }
+		else { sector_6_pas_Scha = "*"; }
+		break;
+	default:
+		if (version < 2) { sector_6_pas_Scha = "#"; }
+		else { sector_6_pas_Scha = "*"; }
+		break;
+	}
+	sector_6_pas = sector_6_pas_num + sector_6_pas_cha + sector_6_pas_Scha;
+}
+void sector_6_pas_check() {
+	if (sector_6_input_pas.equals(sector_6_pas) == 1) {
+		total_clear();
+	}
+	else {
+		total_fail();
+	}
+}
+void total_clear() {
+	score -= (((5-minute)*500) + ((59-second)*5));
+	running_off = true;
+	LCD1.clear();
+	LCD1.setCursor(1, 0);
+	LCD1.print("Congratulation");
+	LCD1.setCursor(2, 1);
+	LCD1.print("Score: ");
+	LCD1.print(score);
+	Master_buzzer.play(520, 500);
+	delay(200);
+	Master_buzzer.play(590, 500);
+	delay(200);
+	Master_buzzer.play(660, 500);
+}
+void total_fail() {
+	running_off = true;
+	LCD1.clear();
+	LCD1.setCursor(4, 0);
+	LCD1.print("BAAAM");
+	for (int i = 0; i < 17; i++) {
+		Master_buzzer.play(1200, 80);
+		delay(200);
+	}
+}
+void button_setting_for_restart() {
+	for (int i = 14; i < 22; i++) {
+		if (digitalRead(i) == LOW) { restart_able = false; break; }
+		else { if (i == 21) { restart_able = true; } }
+	}
+}
+void restart() {
+	if (digitalRead(53) == HIGH && !button_pushed) {
+		if (restart_able) {
+			analogWrite(A1, 0);
+			analogWrite(A2, 0);
+			analogWrite(A3, 0);
+			analogWrite(A4, 0);
+			analogWrite(A5, 0);
+			analogWrite(A6, 0);
+			analogWrite(A7, 0);
+			analogWrite(A8, 0);
+			analogWrite(A9, 0);
+			analogWrite(A10, 0);
+			keyMode = false;
+			current_order_index = 0;
+			button_pushed = false;
+			SetBomb();
+			alert_mode = false;
+			minute = 5;
+			second = 0;
+			timer = 0;
+			fail_count = 0;
+			timer_gap1 = 1000;
+			second_gap = 1.35;
+			score = 10000;
+			//sector 1
+			sector_1_input = 0000;
+			sector_1_current_digit_check[0] = false;
+			sector_1_current_digit_check[1] = false;
+			sector_1_current_digit_check[2] = false;
+			sector_1_current_digit_check[3] = false;
+			sector_1_current_digit = 0;
+
+			//sector 3
+			sector_3_button[0] = false;
+			sector_3_button[1] = false;
+
+			//sector 4
+			sector_4_sec_button = false;
+			sector_4_patten = false;
+			sector_4_wire_on = false;
+			sector_4_gap_time = 800;
+			sector_4_timer = 0;
+			sector_4_current_digit = 5;
+
+			//sector 5
+			sector_5_led_clear[0] = false;
+			sector_5_led_clear[1] = false;
+			sector_5_led_clear[2] = false;
+			sector_5_led_clear[3] = false;
+			sector_5_current_order = 0;
+
+			//sector 6
+			sector_6_input_pas = "";
+
+			LCD1.clear();
+			LCD1.setCursor(6, 0);
+			LCD1.print("READY");
+			delay(3000);
+			SetLCD();
+			total_order_check();
+			running_off = false;
+		}
+		else {
+			LCD1.clear();
+			LCD1.setCursor(0, 0);
+			LCD1.print("Set the wires");
+			LCD1.setCursor(0, 1);
+			LCD1.print("and the buttons");
+		}
+
+	}
+	else if(digitalRead(53)==LOW) {
+		button_pushed = false;
+	}
+}
+void total_order_check() {
+	switch (total_order[current_order_index])
+	{
+	case 0:
+		Sector_1_order_setting();
+		Sector_1_pas_setting();
+		is_sector_1_on = true;
+		break;
+	case 1:
+		Sector_2_bar_setting();
+		Sector_2_time_setting();
+		is_sector_2_on = true;
+		break;
+	case 2:
+		sector_3_loc_setting();
+		is_sector_3_on = true;
+		break;
+	case 3:
+		sector_4_pas_setting();
+		sector_4_wire_patten_setting();
+		is_sector_4_on = true;
+		break;
+	case 4:
+		sector_5_order_setting();
+		sector_5_patten_setting();
+		is_sector_5_on = true;
+		break;
+	}
+	if (current_order_index >= 5) {
+		keyMode = true;
+		SetLCD();
+	}
+}
+void total_order_setting() {
+	switch (company)
+	{
+	case 0:
+		total_order[0] = 0;
+		total_order[1] = 3;
+		total_order[2] = 2;
+		total_order[3] = 1;
+		total_order[4] = 4;
+		break;
+	case 1:
+		total_order[0] = 2;
+		total_order[1] = 4;
+		total_order[2] = 1;
+		total_order[3] = 0;
+		total_order[4] = 3;
+		break;
+	case 2:
+		total_order[0] = 4;
+		total_order[1] = 1;
+		total_order[2] = 3;
+		total_order[3] = 2;
+		total_order[4] = 0;
+		break;
+	default:
+		total_order[0] = 3;
+		total_order[1] = 2;
+		total_order[2] = 0;
+		total_order[3] = 4;
+		total_order[4] = 1;
+		break;
+	}
+}
